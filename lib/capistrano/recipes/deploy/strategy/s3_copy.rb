@@ -36,7 +36,7 @@ module Capistrano
           if bucket_override_url.nil?
               s3_push_cmd = "#{aws_environment} s3cmd put #{bucket_name}:#{rails_env}/#{package_name} #{package_path} x-amz-server-side-encryption:AES256 2>&1"
           else
-             s3_push_cmd = "#{aws_environment} s3cmd put #{package_path} #{bucket_override_url}/#{package_name} 2>&1"
+             s3_push_cmd = "s3cmd put #{package_path} #{bucket_override_url}/#{package_name} 2>&1"
           end
           
           if configuration.dry_run
@@ -49,7 +49,7 @@ module Capistrano
           if bucket_override_url.nil?
               run "#{aws_environment} s3cmd get #{bucket_name}:#{rails_env}/#{package_name} #{remote_filename} 2>&1"
           else
-              run "#{aws_environment} s3cmd get #{bucket_override_url}/#{package_name} #{remote_filename} 2>&1"
+              run "s3cmd get #{bucket_override_url}/#{package_name} #{remote_filename} 2>&1"
           end
           run "cd #{configuration[:releases_path]} && #{decompress(remote_filename).join(" ")} && rm #{remote_filename}"
           logger.debug "done!"
@@ -58,6 +58,7 @@ module Capistrano
         end
 
         def build_aws_install_script
+          logger.debug "Building installation script"
           template_text = configuration[:aws_install_script]
           template_text = File.read(File.join(File.dirname(__FILE__), "aws_install.sh.erb")) if template_text.nil?
           template_text = template_text.gsub("\r\n?", "\n")
@@ -71,8 +72,9 @@ module Capistrano
           if bucket_override_url.nil?
             configuration[:s3_copy_aws_install_cmd] = "#{aws_environment} s3cmd put #{bucket_name}:#{rails_env}/aws_install.sh #{local_output_file} x-amz-server-side-encryption:AES256 2>&1"
           else
-            configuration[:s3_copy_aws_install_cmd] = "#{aws_environment} s3cmd put #{local_output_file} #{bucket_override_url}/aws_install.sh 2>&1"
+            configuration[:s3_copy_aws_install_cmd] = "s3cmd put #{local_output_file} #{bucket_override_url}/aws_install.sh 2>&1"
           end
+          logger.debug "Installation script sent to S3"
         
         end
         
