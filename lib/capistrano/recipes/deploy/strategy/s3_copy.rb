@@ -33,11 +33,7 @@ module Capistrano
         def distribute!
           package_path = filename
           package_name = File.basename(package_path)
-          if bucket_override_url.nil?
-              s3_push_cmd = "#{aws_environment} s3cmd put #{bucket_name}:#{rails_env}/#{package_name} #{package_path} x-amz-server-side-encryption:AES256 2>&1"
-          else
-             s3_push_cmd = "s3cmd put #{package_path} #{bucket_override_url}/#{package_name} 2>&1"
-          end
+		  s3_push_cmd = "s3cmd put #{package_path} s3://#{bucket_name}/#{application}/#{rails_env}/#{package_name} 2>&1"
           
           if configuration.dry_run
             logger.debug s3_push_cmd
@@ -45,16 +41,12 @@ module Capistrano
             system(s3_push_cmd)
             raise Capistrano::Error, "shell command failed with return code #{$?}" if $? != 0
           end
-          
-          if bucket_override_url.nil?
-              run "#{aws_environment} s3cmd get #{bucket_name}:#{rails_env}/#{package_name} #{remote_filename} 2>&1"
-          else
-              run "s3cmd get #{bucket_override_url}/#{package_name} #{remote_filename} 2>&1"
-          end
-          run "cd #{configuration[:releases_path]} && #{decompress(remote_filename).join(" ")} && rm #{remote_filename}"
-          logger.debug "done!"
 
           build_aws_install_script
+		  upload_aws_install_script
+		  run_aws_install_script
+
+          logger.debug "done!"
         end
 
         def build_aws_install_script
@@ -64,19 +56,33 @@ module Capistrano
           template_text = template_text.gsub("\r\n?", "\n")
           template = ERB.new(template_text, nil, '<>-')
           output = template.result(self.binding)
-          local_output_file = File.join(copy_dir, "aws_install.sh")
+
+		  @install_script_name = "#{rails_env}_aws_install.sh"
+          local_output_file = File.join(copy_dir, @install_script_name)
           File.open(local_output_file, "w") do  |f|
             f.write(output)
           end
         
-          if bucket_override_url.nil?
-            configuration[:s3_copy_aws_install_cmd] = "#{aws_environment} s3cmd put #{bucket_name}:#{rails_env}/aws_install.sh #{local_output_file} x-amz-server-side-encryption:AES256 2>&1"
-          else
-            configuration[:s3_copy_aws_install_cmd] = "s3cmd put #{local_output_file} #{bucket_override_url}/aws_install.sh 2>&1"
-          end
+		  configuration[:s3_copy_aws_install_cmd] = "s3cmd put #{local_output_file} s3://#{bucket_name}/#{application}/#{rails_env}/#{install_script_name} 2>&1"
+		  configuration[:s3_copy_aws_install_cmd_name] = 
           logger.debug "Installation script sent to S3"
-        
         end
+
+		def upload_aws_install_script
+			logger.debug "Uploading install script"
+
+			cmd = configuration[:s3_copy_aws_install_cmd]
+			raise Capistrano::Error, "Missing install command" if cmd.nil?
+
+			run_locally(cmd)
+		end
+
+		def run_aws_install_script
+			logger.debug "Running install script"
+			get_cmd = "s3cmd get --force s3://#{bucket_name}/#{application}/#{rails_env}/#{install_script_name}"
+			run "cd #{configuration[:releases_path]} && #{get_cmd} && bash #{install_script_name}"
+			logger.debug "Done."
+		end
         
         def binding
           super
@@ -89,6 +95,10 @@ module Capistrano
         def bucket_name
           @bucket_name
         end
+
+		def install_script_name
+			@install_script_name
+		end
       end
     end
   end
